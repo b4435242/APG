@@ -11,7 +11,7 @@ def find_symbolic_buffer(state):
     stdin = state.posix.stdin
 
     sym_addrs = [ ]
-    for _, symbol in state.solver.get_variables('file', stdin.ident):
+    for _, symbol in state.solver.get_variables('mem'):
         sym_addrs.extend(state.memory.addrs_for_name(next(iter(symbol.variables))))
 
     for addr in sym_addrs:
