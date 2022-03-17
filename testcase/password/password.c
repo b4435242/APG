@@ -2,24 +2,34 @@
 #include<stdio.h>
 #include<time.h>
 #define TOTAL 5
+int password[TOTAL];
 
-Password(int MAX)
+int Password(int MAX, int a)
 {
-	int password[TOTAL];
     int i;
 
     srand(time(NULL));
-    for (i=1;i<=TOTAL;i++){
+    for (i=0;i<TOTAL;i++){
 	    password[i]=(rand()%MAX);
             #ifdef DEBUG
                 printf("No: %d, Password= %04d\n",i,password[i]);
             #endif
+        
     }
+    for (i=0;i<TOTAL;i++){
+        if (a!=password[i])
+            return 0;
+    }
+    return 1;
 }
 
-main()
+int main()
 {
-    Password(10000);
     int a;
     scanf("%d", &a);
+    if (Password(10000, a))
+        printf("good");
+    else 
+        printf("bad");
+    return 0;
 }
