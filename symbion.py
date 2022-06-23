@@ -29,7 +29,7 @@ def main(argv):
 
 
     # Creation of the project with the new attributes 'concrete_target'
-    proj = angr.Project(binary, concrete_target=avatar_gdb)
+    proj = angr.Project(binary, concrete_target=avatar_gdb, main_opts={'base_addr': 0x100000})
 
     proj.concrete_target.set_breakpoint(start_addr)
 
@@ -71,7 +71,4 @@ def main(argv):
     
 
 if __name__ == "__main__":
-    before = time.time()
     main(sys.argv)
-    after = time.time()
-    print("Time elapsed: {}".format(after - before))

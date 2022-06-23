@@ -1,0 +1,3 @@
+breakpoint 0x3f782 // already set up stack pointer
+target 0x3fa87 // res=0
+sp 1 0x100 0x28
