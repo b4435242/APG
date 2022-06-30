@@ -9,6 +9,8 @@ from angr_targets import AvatarGDBConcreteTarget
 # local module
 import variable
 import params
+import llvmir_lifter
+import llvm_transformer
 
 GDB_SERVER_IP = '127.0.0.1'
 
@@ -56,11 +58,22 @@ def symbolic(binary, ctrl, data, GDB_SERVER_PORT, dynamic_base):
         state = founds[0]
         print("good")
         var_management.sync_to_monitored(state, proj)
-
+        expr = var_management.aggregate_constraints(state)
+        return expr
 
 def main():
     binary, ctrl, data, GDB_SERVER_PORT, dynamic_base = params.parse_params()
-    symbolic(binary, ctrl, data, GDB_SERVER_PORT, dynamic_base)
+    expr = symbolic(binary, ctrl, data, GDB_SERVER_PORT, dynamic_base)
+    lifter = llvmir_lifter.lifter()
+    llvm_ir = lifter.lift(expr=expr)
+    transformer = llvm_transformer.transformer()
+    module = transformer.compile_ir(llvm_ir)
+    
+    with open('tmp.ll', 'w') as f:
+        f.write(module)
+
+    transformer.run_cve21773_testcase()
+    #transformer.run_toy_server_testcase()
 
 
 if __name__ == "__main__":

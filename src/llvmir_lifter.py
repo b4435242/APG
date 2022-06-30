@@ -1,11 +1,11 @@
-
 import angr
 import claripy
 from llvmlite import ir
 import llvmlite.binding as llvm
 unop_llvm = {
     '__invert__':ir.IRBuilder.not_,
-    '__neg__':ir.IRBuilder.neg
+    '__neg__':ir.IRBuilder.neg,
+    'Not': ir.IRBuilder.not_
 }
 binop_llvm = {
     '__add__':ir.IRBuilder.add,
@@ -20,10 +20,39 @@ binop_llvm = {
     '__xor__':ir.IRBuilder.xor,
     '__lshift__':ir.IRBuilder.shl,
     '__rshift__':ir.IRBuilder.ashr,
-    'LShR':ir.IRBuilder.lshr
+    'LShR':ir.IRBuilder.lshr,
+    '__ne__': ir.IRBuilder.icmp_signed,
+    '__eq__': ir.IRBuilder.icmp_signed,
+    'ULE': ir.IRBuilder.icmp_unsigned,
+    'ULT': ir.IRBuilder.icmp_unsigned,
+    'UGE': ir.IRBuilder.icmp_unsigned,
+    'UGT': ir.IRBuilder.icmp_unsigned,
+    'SLE': ir.IRBuilder.icmp_signed,
+    'SLT': ir.IRBuilder.icmp_signed,
+    'SGE': ir.IRBuilder.icmp_signed,
+    'SGT': ir.IRBuilder.icmp_signed,
+    'And': ir.IRBuilder.and_,
+    'Or': ir.IRBuilder.or_,
 }
+cmpop = {
+    '__eq__': '==',
+    '__ne__': '!=',
+    'ULE': '<=',
+    'ULT': '<',
+    'UGE': '>=',
+    'UGT': '>',
+    'SLE': '<=',
+    'SLT': '<',
+    'SGE': '>=',
+    'SGT': '>'
+}
+
 signed_op = ['SDiv','SMod']
-supported_op = ['Concat','ZeroExt','SignExt','Extract','RotateLeft','RotateRight'] + list(unop_llvm.keys()) + list(binop_llvm.keys())
+supported_op = [
+    'ZeroExt','SignExt','Extract', 'Concat',
+    'RotateLeft','RotateRight', 'Reverse',
+    'If'
+    ] + list(unop_llvm.keys()) + list(binop_llvm.keys())
 supported_type = ['BVV','BVS']
 class lifter:
     def __init__(self):
@@ -37,7 +66,8 @@ class lifter:
         self.node_count = 0
  
     def new_value(self, value, expr):
-        assert value.type.width == expr.size()
+        if (isinstance(expr, claripy.ast.bv.BV)):
+            assert value.type.width == expr.size()
         n = self.count
         self.value_array.append(value)
         self.count += 1
@@ -64,7 +94,10 @@ class lifter:
                 v = self.cur
                 lhs = self.get_value(left)
                 rhs = self.get_value(v)
-                self.cur = self.new_value(binop_llvm[expr.op](self.builder, lhs, rhs, name = "node" + str(self.node_count)), expr)
+                if expr.op in cmpop:
+                    self.cur = self.new_value(binop_llvm[expr.op](self.builder, cmpop[expr.op], lhs, rhs, name = "node" + str(self.node_count)), expr)
+                else:
+                    self.cur = self.new_value(binop_llvm[expr.op](self.builder, lhs, rhs, name = "node" + str(self.node_count)), expr)
                 left = self.cur
                 self.node_count += 1
         pass
@@ -145,6 +178,44 @@ class lifter:
         self.cur = self.new_value(self.builder.or_(self.builder.shl(val, ir.Constant(val.type, width - bit)), self.builder.lshr(val.type, ir.Constant(val.type, bit)), name = "node" + str(self.node_count)), expr)
         self.node_count += 1
         pass
+
+    def _visit_reverse(self, expr):
+        self._visit_ast(expr.args[0])
+        v0 = self.cur
+        val = self.get_value(v0)
+        print("arg %s %s"%(val, type(val)))
+        width = val.type.width
+        r_val = ir.Constant(val.type, 0)
+        mask_shift_bit = 0
+        mask = ir.Constant(val.type, 0xff)
+        for i in range(8, width, 16):
+            l = self.builder.and_(self.builder.shl(val, ir.Constant(val.type, width-i)), self.builder.shl(mask, ir.Constant(val.type, width-8-mask_shift_bit)))
+            r = self.builder.and_(self.builder.lshr(val, ir.Constant(val.type, width-i)), self.builder.shl(mask, ir.Constant(val.type, mask_shift_bit)))
+            r_val = self.builder.or_(self.builder.or_(l, r), r_val, name = "node" + str(self.node_count))
+            mask_shift_bit += 8
+        self.cur = self.new_value(r_val, expr)
+        self.node_count += 1
+        pass
+
+
+    def _visit_if(self, expr):
+        self._visit_ast(expr.args[0])
+        v0 = self.cur
+        pred = self.get_value(v0)
+        self._visit_ast(expr.args[1])
+        v0 = self.cur
+        t_stm = self.get_value(v0)
+        self._visit_ast(expr.args[2])
+        v0 = self.cur
+        f_stm = self.get_value(v0)
+        with ir.IRBuilder.if_else(pred=pred) as (then, otherwise):
+            with then:
+                self.cur = self.new_value(t_stm, expr)
+            with otherwise:
+                self.cur = self.new_value(f_stm, expr)
+        self.node_count += 1
+        pass
+
  
     def _visit_op(self, expr):
         if expr.op in binop_llvm.keys():
@@ -162,6 +233,7 @@ class lifter:
         elif expr.op in supported_type:
             self._visit_value(expr)
         else:
+            print(expr.op)
             raise Exception("unsupported operation!")
  
     def lift(self, expr):
@@ -169,6 +241,7 @@ class lifter:
         self.count = 0
         self.value_array = []
         self.args = {}
+        print(expr)
         c = 0
         for i in expr.leaf_asts():
             if i.op == 'BVS':
@@ -180,11 +253,13 @@ class lifter:
         type_list = []
         for i in items:
             type_list.append(ir.IntType(i[0].size()))
-        fnty = ir.FunctionType(ir.IntType(expr.size()), tuple(type_list))
+        fnty = ir.FunctionType(ir.IntType(1), tuple(type_list))
         module = ir.Module(name=__file__)
-        self.func = ir.Function(module, fnty, name="dump")
+        self.func = ir.Function(module, fnty, name="constraints")
         block = self.func.append_basic_block(name="entry")
         self.builder = ir.IRBuilder(block)
         self._visit_ast(expr)
         self.builder.ret(self.get_value(self.cur))
+        
+        print(module)
         return str(module)

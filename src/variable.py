@@ -47,13 +47,31 @@ class SymVar:
             var = claripy.BVS(str(addr), size) # take name as addr
             self.state.memory.store(addr, var) # setup symbolic variable
             self.add_var_to_vars(addr, var)
+
+            #self.state.solver.register_variable(var, addr)
             
 
     def sync_to_monitored(self, state: angr.SimState, proj):
         for addr, dict in self.vars.items():
-            var = dict["var"]
+            #var = dict["var"]
+            len_bytes = int(dict["size"]/8)
+            var = state.memory.load(addr, len_bytes)
+            
+            print(var)
+            print(var.symbolic)
             val = state.solver.eval(var, cast_to=bytes) # solve AST to bytes
             addr = state.solver.eval(addr) # convert from BVV to Python int
             proj.concrete_target.write_memory(addr, val)
             print("ans val=%s, addr =%x"%(val.decode(), addr))
-            exit(0)
+
+        #exit(0)
+
+    def aggregate_constraints(self, state: angr.SimState):
+        constraints = state.solver.constraints
+        print(constraints)
+        if len(constraints)==0:
+            return claripy.true
+        x = claripy.true
+        for c in constraints:
+            x = claripy.And(x, c)
+        return x
