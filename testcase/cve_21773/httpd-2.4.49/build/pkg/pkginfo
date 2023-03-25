@@ -1,0 +1,11 @@
+PKG="ASFhttpd"
+NAME="httpd"
+ARCH="x86_64"
+VERSION="2.4.49"
+CATEGORY="application"
+VENDOR="Apache Software Foundation"
+EMAIL="dev@httpd.apache.org"
+PSTAMP="dev@httpd.apache.org"
+BASEDIR="/home/bill/APG/testcase/cve_21773/apache2.4.49"
+CLASSES="none"
+
